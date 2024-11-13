@@ -30,7 +30,6 @@ func main() {
 	fmt.Printf("RTP server listening on %s\n", address)
 
 	/* Pion WebRTC Code */
-
 	mediaEngine := &webrtc.MediaEngine{}
 	codecErr := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
@@ -67,6 +66,7 @@ func main() {
 		webrtc.WithMediaEngine(mediaEngine),
 		webrtc.WithInterceptorRegistry(interceptorRegistry),
 	)
+
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -79,6 +79,7 @@ func main() {
 		panic(peerConnErr)
 	}
 
+	/* Finally, close connection with peer*/
 	defer func() {
 		if connErr := peerConnection.Close(); connErr != nil {
 			fmt.Printf("Cannot close peer connection: %v", connErr)
