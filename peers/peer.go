@@ -1,36 +1,20 @@
-package main
+package peers
 
 import (
 	"fmt"
-	helper "freeng/webRTCHelpers"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/intervalpli"
-	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
-	"log"
-	"net"
 	"os"
+    helper "freeng/webRTCHelpers"
 )
 
-func main() {
-	// args := os.Args[:]
-	// isServer := len(args) > 1 && args[1] == "-s"
-	var conn net.PacketConn
-	// /* Initalize UDP server to read RTP packets*/
-	address := "0.0.0.0:5004"
-	conn, err := net.ListenPacket("udp", address)
-	if err != nil {
-		log.Fatalf("Failed to listen on UDP: %v", err)
-	}
-	defer conn.Close()
-	fmt.Printf("RTP server listening on %s\n", address)
+func Peer() {
 
-	/* Pion WebRTC Code */
 	mediaEngine := &webrtc.MediaEngine{}
 	codecErr := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
-			// MimeType:    webrtc.MimeTypeH264,
-			MimeType:    webrtc.MimeTypeVP8,
+			MimeType:    webrtc.MimeTypeH264,
 			ClockRate:   90000,
 			Channels:    0,
 			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
@@ -99,8 +83,8 @@ func main() {
 		panic(addTrackErr)
 	}
 
-	/* Constantly read rtcp packets from rtpSender
-	   rtcp: control. Monitors rtp data for rtpSender */
+	/* Constantly read rtcp packets from rtpSender 
+        rtcp: control. Monitors rtp data for rtpSender */
 	go func() {
 		rtcpBuf := make([]byte, 1500)
 		for {
@@ -124,7 +108,7 @@ func main() {
 	/* Logic for us recieving a track from a peer */
 	peerConnection.OnTrack(
 		func(track *webrtc.TrackRemote, reciever *webrtc.RTPReceiver) {
-			fmt.Printf("we have recieved a track, it is type %d: %s \n", track.PayloadType(), track.Codec().MimeType)
+			fmt.Printf("We have recieved a track, it is type %d: %s \n", track.PayloadType(), track.Codec().MimeType)
 			// for {
 			// 	rtp, _, readErr := track.ReadRTP()
 			// 	if readErr != nil {
@@ -170,66 +154,6 @@ func main() {
 	<-gatherComplete
 	print(helper.Encode(peerConnection.LocalDescription()))
 
-	// go processCameraFeed(conn, outputTrack,peerConnection)
-	go processCameraFeed(conn, outputTrack)
-
+	/* Constantly read packets from our udp server */
 	select {}
-}
-
-/* PROGRESS: Can start udp server and recieve packets while we have a webrtc connection
-   Peer is not getting video it seems however, could be a codec issue or a sending packet issue */
-/*
-Recieve rtp packets from our server
-Send rtp packets to peers by placing track into outputTrack
-Detect if there is movement
-*/
-// func processCameraFeed(conn net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP, peerConnection *webrtc.PeerConnection) {
-func processCameraFeed(conn net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP) {
-	packet := make([]byte, 1500)
-	for {
-		// print(helper.Encode(peerConnection.LocalDescription()))
-		numBytesInPacket, readError := readRTPPacket(conn, packet)
-		if readError != nil {
-			continue
-		}
-		var rtpPacket rtp.Packet
-		if err := rtpPacket.Unmarshal(packet[:numBytesInPacket]); err != nil {
-			log.Printf("Failed to unmarshal RTP packet: %v", err)
-		}
-		sendRTPPacket(outputTrack, rtpPacket)
-		logRTPPacket(rtpPacket)
-	}
-}
-
-/* Populate our buffer with the rtp packet that our UDP server recieved */
-func readRTPPacket(conn net.PacketConn, packet []byte) (int, error) {
-	numBytesInPacket, _, err := conn.ReadFrom(packet)
-	if err != nil {
-		log.Printf("Error reading from connection: %v", err)
-	}
-	return numBytesInPacket, err
-}
-
-/* Process Packet, unmarshal only the bytes that the packet contains */
-func processRTPPacket(numBytesInPacket int, packet []byte) rtp.Packet {
-	var rtpPacket rtp.Packet
-	if err := rtpPacket.Unmarshal(packet[:numBytesInPacket]); err != nil {
-		log.Printf("Failed to unmarshal RTP packet: %v", err)
-	}
-	return rtpPacket
-}
-
-/* Place the rtp packet into writer so it can be sent to peers*/
-func sendRTPPacket(outputTrack *webrtc.TrackLocalStaticRTP, rtpPacket rtp.Packet) {
-	if writeErr := outputTrack.WriteRTP(&rtpPacket); writeErr != nil {
-		panic(writeErr)
-	}
-}
-
-func logRTPPacket(rtpPacket rtp.Packet) {
-	fmt.Printf("Received RTP packet:\n")
-	fmt.Printf("  SSRC: %d\n", rtpPacket.SSRC)
-	fmt.Printf("  Sequence Number: %d\n", rtpPacket.SequenceNumber)
-	fmt.Printf("  Timestamp: %d\n", rtpPacket.Timestamp)
-	fmt.Printf("  Payload size: %d bytes\n", len(rtpPacket.Payload))
 }
