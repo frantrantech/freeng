@@ -2,28 +2,38 @@ package main
 
 import (
 	"fmt"
+	detection "freeng/detection"
 	helper "freeng/webRTCHelpers"
+	"log"
+	"net"
+	"os"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
-	"log"
-	"net"
-	"os"
 )
 
+/*
+	Initialize a UDP server that reads RTP packets from cameras on prem
+
+1) Forward all RTP packets to a peer
+2) Process video from RTP to see if there is movement
+*/
 func main() {
 	// args := os.Args[:]
 	// isServer := len(args) > 1 && args[1] == "-s"
-	var conn net.PacketConn
+	var server net.PacketConn
 	// /* Initalize UDP server to read RTP packets*/
-	address := "0.0.0.0:5004"
-	conn, err := net.ListenPacket("udp", address)
+	// address := "127.0.0.1:5004"
+	address := "127.0.0.1:5009"
+	server, err := net.ListenPacket("udp", address)
 	if err != nil {
 		log.Fatalf("Failed to listen on UDP: %v", err)
 	}
-	defer conn.Close()
+	defer server.Close()
 	fmt.Printf("RTP server listening on %s\n", address)
+
+  detection.Detect(server)
 
 	/* Pion WebRTC Code */
 	mediaEngine := &webrtc.MediaEngine{}
@@ -171,24 +181,27 @@ func main() {
 	print(helper.Encode(peerConnection.LocalDescription()))
 
 	// go processCameraFeed(conn, outputTrack,peerConnection)
-	go processCameraFeed(conn, outputTrack)
+	go processCameraFeed(server, outputTrack)
 
 	select {}
 }
 
 /* PROGRESS: Can start udp server and recieve packets while we have a webrtc connection
-   Peer is not getting video it seems however, could be a codec issue or a sending packet issue */
+   Peer is not getting video it seems however, could be a codec issue or a sending packet issue
+*/
+
 /*
 Recieve rtp packets from our server
 Send rtp packets to peers by placing track into outputTrack
 Detect if there is movement
 */
+
 // func processCameraFeed(conn net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP, peerConnection *webrtc.PeerConnection) {
-func processCameraFeed(conn net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP) {
+func processCameraFeed(server net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP) {
 	packet := make([]byte, 1500)
 	for {
 		// print(helper.Encode(peerConnection.LocalDescription()))
-		numBytesInPacket, readError := readRTPPacket(conn, packet)
+		numBytesInPacket, readError := readRTPPacket(server, packet)
 		if readError != nil {
 			continue
 		}
@@ -197,7 +210,7 @@ func processCameraFeed(conn net.PacketConn, outputTrack *webrtc.TrackLocalStatic
 			log.Printf("Failed to unmarshal RTP packet: %v", err)
 		}
 		sendRTPPacket(outputTrack, rtpPacket)
-		logRTPPacket(rtpPacket)
+		helper.LogRTPPacket(rtpPacket,0)
 	}
 }
 
@@ -226,10 +239,4 @@ func sendRTPPacket(outputTrack *webrtc.TrackLocalStaticRTP, rtpPacket rtp.Packet
 	}
 }
 
-func logRTPPacket(rtpPacket rtp.Packet) {
-	fmt.Printf("Received RTP packet:\n")
-	fmt.Printf("  SSRC: %d\n", rtpPacket.SSRC)
-	fmt.Printf("  Sequence Number: %d\n", rtpPacket.SequenceNumber)
-	fmt.Printf("  Timestamp: %d\n", rtpPacket.Timestamp)
-	fmt.Printf("  Payload size: %d bytes\n", len(rtpPacket.Payload))
-}
+

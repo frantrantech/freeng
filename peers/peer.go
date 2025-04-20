@@ -6,11 +6,10 @@ import (
 	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/webrtc/v4"
 	"os"
-    helper "freeng/webRTCHelpers"
+  helper "freeng/webRTCHelpers"
 )
 
 func Peer() {
-
 	mediaEngine := &webrtc.MediaEngine{}
 	codecErr := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{

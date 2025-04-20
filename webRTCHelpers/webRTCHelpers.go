@@ -1,4 +1,4 @@
-package webRTCHelpers 
+package webRTCHelpers
 
 import (
 	"bufio"

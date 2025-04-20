@@ -1,1 +1,4 @@
 *.txt
+.DS_Store
+*.mp4
+*.mov
