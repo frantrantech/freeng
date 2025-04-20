@@ -4,9 +4,12 @@ import (
 	"fmt"
 	detection "freeng/detection"
 	helper "freeng/webRTCHelpers"
+	"io"
 	"log"
 	"net"
 	"os"
+	"os/exec"
+
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/rtp"
@@ -20,20 +23,35 @@ import (
 2) Process video from RTP to see if there is movement
 */
 func main() {
-	// args := os.Args[:]
-	// isServer := len(args) > 1 && args[1] == "-s"
-	var server net.PacketConn
-	// /* Initalize UDP server to read RTP packets*/
-	// address := "127.0.0.1:5004"
-	address := "127.0.0.1:5009"
-	server, err := net.ListenPacket("udp", address)
-	if err != nil {
-		log.Fatalf("Failed to listen on UDP: %v", err)
-	}
-	defer server.Close()
-	fmt.Printf("RTP server listening on %s\n", address)
 
-  detection.Detect(server)
+	// var server net.PacketConn
+	// /* Initalize UDP server to read RTP packets*/
+	// // address := "127.0.0.1:5004"
+	// server, err := net.ListenPacket("udp", address)
+	// if err != nil {
+	// 	log.Fatalf("Failed to listen on UDP: %v", err)
+	// }
+	// defer server.Close()
+	// fmt.Printf("RTP server listening on %s\n", address)
+
+	/* Start video detection */
+	// detection.Detect()
+	go detection.Detect()
+
+	ffmpegRTPPassthrough := exec.Command(
+		"ffmpeg",
+		"-protocol_whitelist", "file,udp,rtp",
+		"-i", "input.sdp",
+		"-c", "copy", // No decoding or re-encoding
+		"-f", "rtp", // Output format is RTP
+		"pipe:1", // Write raw RTP packets to stdout
+	)
+	ffmpegOut, _ := ffmpegRTPPassthrough.StdoutPipe()
+	if err := ffmpegRTPPassthrough.Start(); err != nil {
+		// panic(err)
+	}
+
+	fmt.Println("Starting rtp forward")
 
 	/* Pion WebRTC Code */
 	mediaEngine := &webrtc.MediaEngine{}
@@ -140,6 +158,7 @@ func main() {
 			// 	if readErr != nil {
 			// 		panic(readErr)
 			// 	}
+
 			// 	if writeErr := outputTrack.WriteRTP(rtp); writeErr != nil {
 			// 		panic(writeErr)
 			// 	}
@@ -177,13 +196,44 @@ func main() {
 	}
 
 	/* Wait until gatherComplete channel has information on if we have connected a peer or not */
-	<-gatherComplete
-	print(helper.Encode(peerConnection.LocalDescription()))
+  <-gatherComplete
+
+  fmt.Println()
+  fmt.Println(helper.Encode(peerConnection.LocalDescription()))
+	fmt.Println()
+	fmt.Println()
 
 	// go processCameraFeed(conn, outputTrack,peerConnection)
-	go processCameraFeed(server, outputTrack)
+	go processCameraPackets(ffmpegOut, outputTrack)
 
 	select {}
+}
+
+func processCameraPackets(ffmpegOut io.ReadCloser, outputTrack *webrtc.TrackLocalStaticRTP) {
+	packet := make([]byte, 1500)
+  fmt.Println("Starting rtp processing")
+	for {
+		// print(helper.Encode(peerConnection.LocalDescription()))
+		numBytesInPacket, readError := readFFmpegRTPPacket(ffmpegOut, packet)
+		if readError != nil {
+			continue
+		}
+		var rtpPacket rtp.Packet
+		if err := rtpPacket.Unmarshal(packet[:numBytesInPacket]); err != nil {
+			// log.Printf("Failed to unmarshal RTP packet: %v", err)
+		}
+		sendRTPPacket(outputTrack, rtpPacket)
+		helper.LogRTPPacket(rtpPacket, 0)
+	}
+}
+
+func readFFmpegRTPPacket(ffmpegOut io.ReadCloser, packet []byte) (int, error) {
+	numBytesInPacket, err := io.ReadFull(ffmpegOut, packet)
+	if err != nil {
+		// fmt.Println(err)
+	}
+
+	return numBytesInPacket, err
 }
 
 /* PROGRESS: Can start udp server and recieve packets while we have a webrtc connection
@@ -197,11 +247,10 @@ Detect if there is movement
 */
 
 // func processCameraFeed(conn net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP, peerConnection *webrtc.PeerConnection) {
-func processCameraFeed(server net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP) {
+func processServerCameraFeed(server net.PacketConn, outputTrack *webrtc.TrackLocalStaticRTP) {
 	packet := make([]byte, 1500)
 	for {
-		// print(helper.Encode(peerConnection.LocalDescription()))
-		numBytesInPacket, readError := readRTPPacket(server, packet)
+		numBytesInPacket, readError := readServerRTPPacket(server, packet)
 		if readError != nil {
 			continue
 		}
@@ -210,13 +259,13 @@ func processCameraFeed(server net.PacketConn, outputTrack *webrtc.TrackLocalStat
 			log.Printf("Failed to unmarshal RTP packet: %v", err)
 		}
 		sendRTPPacket(outputTrack, rtpPacket)
-		helper.LogRTPPacket(rtpPacket,0)
+		helper.LogRTPPacket(rtpPacket, 0)
 	}
 }
 
 /* Populate our buffer with the rtp packet that our UDP server recieved */
-func readRTPPacket(conn net.PacketConn, packet []byte) (int, error) {
-	numBytesInPacket, _, err := conn.ReadFrom(packet)
+func readServerRTPPacket(server net.PacketConn, packet []byte) (int, error) {
+	numBytesInPacket, _, err := server.ReadFrom(packet)
 	if err != nil {
 		log.Printf("Error reading from connection: %v", err)
 	}
@@ -238,5 +287,3 @@ func sendRTPPacket(outputTrack *webrtc.TrackLocalStaticRTP, rtpPacket rtp.Packet
 		panic(writeErr)
 	}
 }
-
-

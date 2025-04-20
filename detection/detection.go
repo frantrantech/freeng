@@ -39,9 +39,9 @@ const (
     ...
 */
 
-func Detect(server net.PacketConn) {
-	window := gocv.NewWindow("Motion Window")
-	defer window.Close() //nolint
+func Detect() {
+	// window := gocv.NewWindow("Motion Window")
+	// defer window.Close() //nolint
 
 	img := gocv.NewMat()
 	defer img.Close() //nolint
@@ -55,10 +55,7 @@ func Detect(server net.PacketConn) {
 	mog2 := gocv.NewBackgroundSubtractorMOG2()
 	defer mog2.Close() //nolint
 
-	// readServerPackets(server)
-	// ffmpeg -re -i testFeed.mov -c:v libx264 -f rtp rtp://127.0.0.1:5004
-	// ffmpeg := exec.Command("ffmpeg", "-re", "-i", "testFeed.mov", "-c:v", "libx264", "-f", "rtp", "rtp://127.0.0.1:5004")
-
+	/* Command that reads in RTP packets from ip inside input.sdp, and pipes RAW images to std out */
 	ffmpeg := exec.Command(
 		"ffmpeg",
 		"-protocol_whitelist", "file,udp,rtp",
@@ -73,22 +70,26 @@ func Detect(server net.PacketConn) {
 	// ffmpegIn,_ := ffmpeg.StdinPipe()
 	// ffmpegErr,_ := ffmpeg.StderrPipe()
 	if err := ffmpeg.Start(); err != nil {
-		panic(err)
+		// panic(err)
 	}
+
+	fmt.Println("Starting ffmpeg raw analyis")
+
 	for {
 		buf := make([]byte, frameSize)
 		if _, err := io.ReadFull(ffmpegOut, buf); err != nil {
-			fmt.Printf("Error with ffmpeg out: %e", err)
+			// fmt.Printf("Error with ffmpeg out: %e", err)
 			continue
 		}
-		img, _ = gocv.NewMatFromBytes(frameX, frameY, gocv.MatTypeCV8UC3, buf)
+		img, _ = gocv.NewMatFromBytes(frameY, frameX, gocv.MatTypeCV8UC3, buf)
 		if img.Empty() {
-      fmt.Println("Img empty")
+			fmt.Println("Img empty")
 			continue
 		}
-		window.IMShow(img)
-		window.WaitKey(1)
+		// window.IMShow(img)
+		// window.WaitKey(1)
 	}
+
 }
 
 /*
@@ -121,42 +122,20 @@ var INITIAL_LAST_PACKET uint32 = 0
 
 func readServerPackets(server net.PacketConn) {
 	packet := make([]byte, 1500)
-	firstPacketTimestamp := FIRST_PACKET_NOT_SEEN
-	canStartTrackingPackets := false
-	lastPacketTimestamp := INITIAL_LAST_PACKET
 	counter := 0
 
+	fmt.Println("reading server packets")
 	for {
 		numBytesInPacket, readError := readRTPPacket(server, packet)
 		if readError != nil {
 			continue
 		}
 		var currRTPPacket rtp.Packet
-		currPacketTimestamp := currRTPPacket.Timestamp
 		if err := currRTPPacket.Unmarshal(packet[:numBytesInPacket]); err != nil {
 			log.Printf("Failed to unmarshal RTP packet: %v", err)
 		}
 
-		/* This is the first packet we've seen. Store the timnestamp*/
-		if firstPacketTimestamp == FIRST_PACKET_NOT_SEEN {
-			firstPacketTimestamp = currPacketTimestamp
-		}
-		/* If this isn't the first packet we've seen and the currentPacket has a larger time stamp, we can begin tracking packets.*/
-		if firstPacketTimestamp != FIRST_PACKET_NOT_SEEN && currPacketTimestamp > firstPacketTimestamp {
-			canStartTrackingPackets = true
-		}
-		/* Stop if we haven't a timestamp different from the inital timestamp*/
-		if !canStartTrackingPackets {
-			continue
-		}
-
-		/* Start a new packet block */
-		if lastPacketTimestamp < currPacketTimestamp {
-
-		}
-
 		helper.LogRTPPacket(currRTPPacket, counter)
-		lastPacketTimestamp = currRTPPacket.Timestamp
 		counter++
 	}
 }
